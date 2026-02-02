@@ -1,14 +1,16 @@
+
 import React, { useState } from 'react';
 import { useData } from '../store';
 import { Medicine, MedicineStatus } from '../types';
 import { QRScanner } from './QRScanner';
-import { ShieldCheck, ShieldAlert, AlertTriangle, Search, Activity, Calendar, MapPin, Check } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, AlertTriangle, Search, Activity, Calendar, MapPin, Check, Loader2, Send } from 'lucide-react';
 
 export const ConsumerPortal: React.FC = () => {
   const { incrementScan, reportMismatch } = useData();
   const [scannedMedicine, setScannedMedicine] = useState<Medicine | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isReporting, setIsReporting] = useState(false);
   const [city, setCity] = useState('');
   const [isCitySubmitted, setIsCitySubmitted] = useState(false);
 
@@ -36,13 +38,21 @@ export const ConsumerPortal: React.FC = () => {
     }, 800);
   };
 
-  const handleReport = () => {
+  const handleReport = async () => {
     if (scannedMedicine && city) {
-      if (confirm("Are you sure you want to report this product as mismatched?")) {
-        reportMismatch(scannedMedicine.id, city);
-        // Optimistically update UI
-        setScannedMedicine(prev => prev ? { ...prev, status: MedicineStatus.SUSPICIOUS } : null);
-        alert(`ALERT: Manufacturer has been notified of the mismatch in ${city}.`);
+      const confirmation = confirm(
+        `Are you sure you want to report this product? \n\nA security alert including the Medicine Name, Batch ID, and your current location (${city}) will be sent to the manufacturer via Resend.`
+      );
+      
+      if (confirmation) {
+        setIsReporting(true);
+        const success = await reportMismatch(scannedMedicine.id, city);
+        
+        if (success) {
+          // Re-fetch or update local medicine state to show "Reported" status
+          setScannedMedicine(prev => prev ? { ...prev, status: MedicineStatus.SUSPICIOUS } : null);
+        }
+        setIsReporting(false);
       }
     }
   };
@@ -105,7 +115,7 @@ export const ConsumerPortal: React.FC = () => {
       {loading && (
         <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-slate-500">Verifying blockchain record...</p>
+            <p className="text-slate-500 font-medium">Querying secure records...</p>
         </div>
       )}
 
@@ -210,14 +220,29 @@ export const ConsumerPortal: React.FC = () => {
                     
                     <button
                         onClick={handleReport}
-                        disabled={scannedMedicine.status === MedicineStatus.SUSPICIOUS}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                        disabled={scannedMedicine.status === MedicineStatus.SUSPICIOUS || isReporting}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 ${
                             scannedMedicine.status === MedicineStatus.SUSPICIOUS
-                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                             : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
-                        }`}
+                             ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                             : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 shadow-sm'
+                        } ${isReporting ? 'opacity-70 cursor-wait' : ''}`}
                     >
-                        {scannedMedicine.status === MedicineStatus.SUSPICIOUS ? 'Reported' : 'Report Mismatch'}
+                        {isReporting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Sending...
+                          </>
+                        ) : scannedMedicine.status === MedicineStatus.SUSPICIOUS ? (
+                          <>
+                            <Check className="w-4 h-4" />
+                            Alert Sent
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4" />
+                            Report Mismatch
+                          </>
+                        )}
                     </button>
                 </div>
             </div>

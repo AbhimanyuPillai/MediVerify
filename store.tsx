@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Medicine, MedicineStatus, Alert, ToastNotification } from './types';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,7 +9,7 @@ interface DataContextType {
   addMedicine: (data: Omit<Medicine, 'id' | 'scanCount' | 'status' | 'createdAt'>) => Medicine;
   getMedicine: (id: string) => Medicine | undefined;
   incrementScan: (id: string) => Medicine | undefined;
-  reportMismatch: (id: string, city: string) => void;
+  reportMismatch: (id: string, city: string) => Promise<boolean>;
   toasts: ToastNotification[];
   addToast: (message: string, type: ToastNotification['type']) => void;
   removeToast: (id: string) => void;
@@ -16,17 +17,41 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-// Helper to simulate email sending
-const sendAlertEmail = (manufacturerEmail: string, issueType: string, medicineId: string, addToast: any) => {
-  const message = `URGENT: Your product [${medicineId}] has been flagged for [${issueType}]. Please investigate.`;
+/**
+ * Mocking the Resend API Route call.
+ * In a production environment, this would call a serverless endpoint like /api/send-email
+ * which uses the 'resend' npm package on the server.
+ */
+const triggerResendEmail = async (params: {
+  to: string;
+  medicineName: string;
+  batchNumber: string;
+  issue: string;
+  location: string;
+}) => {
+  console.log(`%c[RESEND API CALL] Initiating serverless route...`, 'color: #ff69b4; font-weight: bold; border: 1px solid #ff69b4; padding: 2px 4px; border-radius: 4px;');
   
-  // 1. Console Log (as requested)
-  console.log(`%c[EMAIL SIMULATION] To: ${manufacturerEmail}`, 'color: yellow; background: black; padding: 4px;');
-  console.log(`%cSubject: Medicine Security Alert`, 'font-weight: bold;');
-  console.log(`%cBody: ${message}`, 'color: cyan;');
+  // Simulation of the server-side payload
+  const emailPayload = {
+    from: 'MediVerify Security <alerts@mediverify.io>',
+    to: params.to,
+    subject: `URGENT: Security Alert for Batch ${params.batchNumber}`,
+    react: `
+      Medicine Name: ${params.medicineName}
+      Batch Number: ${params.batchNumber}
+      Issue Reported: ${params.issue}
+      Incident Location: ${params.location}
+      Timestamp: ${new Date().toISOString()}
+    `
+  };
 
-  // 2. Toast Notification
-  addToast(`Alert sent to ${manufacturerEmail}: ${issueType}`, 'error');
+  console.log('%c[PAYLOAD PREPARED]', 'color: #888; font-style: italic;', emailPayload);
+
+  // Simulate network latency for the serverless function execution
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  console.log(`%c[RESEND SUCCESS] Security alert email delivered to ${params.to} via Resend Infrastructure.`, 'color: #00ff00; font-weight: bold;');
+  return true;
 };
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -87,19 +112,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const isExpired = today > medicine.expiryDate;
     
     let newStatus = medicine.status;
-    // Check Expiry
     if (isExpired) {
       newStatus = MedicineStatus.EXPIRED;
     }
 
     const newScanCount = medicine.scanCount + 1;
     
-    // Check Cloning (Scan Count > 10)
     if (newScanCount > 10 && newStatus !== MedicineStatus.SUSPICIOUS) {
       newStatus = MedicineStatus.SUSPICIOUS;
       const issue = "Potential Cloning (High Scan Count)";
       
-      // Trigger Alert Logic
       const newAlert: Alert = {
         id: uuidv4(),
         medicineId: id,
@@ -108,7 +130,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         message: `System flagged ID ${id} due to excessive scans (${newScanCount}).`
       };
       setAlerts((prev) => [...prev, newAlert]);
-      sendAlertEmail(medicine.manufacturerEmail, issue, id, addToast);
+      
+      // Auto-trigger email alert for high scan counts
+      triggerResendEmail({
+        to: medicine.manufacturerEmail,
+        medicineName: medicine.name,
+        batchNumber: medicine.id,
+        issue: issue,
+        location: "System Global Monitor"
+      });
     }
 
     const updatedMedicine = {
@@ -121,29 +151,44 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return updatedMedicine;
   };
 
-  const reportMismatch = (id: string, city: string) => {
+  const reportMismatch = async (id: string, city: string) => {
     const medicine = medicines.find((m) => m.id === id);
-    if (!medicine) return;
+    if (!medicine) return false;
 
-    const issue = `User Reported Mismatch (Location: ${city})`;
+    const issue = `User Reported Mismatch`;
     
-    // Trigger Alert Logic
+    // 1. Create Alert Record
     const newAlert: Alert = {
       id: uuidv4(),
       medicineId: id,
-      issueType: issue,
+      issueType: `${issue} (Location: ${city})`,
       timestamp: Date.now(),
-      message: `User reported mismatch for ID ${id} from city: ${city}.`
+      message: `Manual report for ID ${id} from city: ${city}.`
     };
     setAlerts((prev) => [...prev, newAlert]);
     
+    // 2. Update Medicine Status
     const updatedMedicine = {
       ...medicine,
       status: MedicineStatus.SUSPICIOUS
     };
-
     setMedicines((prev) => prev.map((m) => (m.id === id ? updatedMedicine : m)));
-    sendAlertEmail(medicine.manufacturerEmail, issue, id, addToast);
+
+    // 3. Call Serverless Resend API (Simulated)
+    try {
+      await triggerResendEmail({
+        to: medicine.manufacturerEmail,
+        medicineName: medicine.name,
+        batchNumber: medicine.id,
+        issue: issue,
+        location: city
+      });
+      addToast(`Security alert sent to ${medicine.manufacturerName}.`, 'success');
+      return true;
+    } catch (err) {
+      addToast(`Failed to dispatch security email. System alert logged.`, 'error');
+      return false;
+    }
   };
 
   return (
