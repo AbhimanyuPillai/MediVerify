@@ -1,0 +1,7 @@
+{
+  "name": "MediVerify",
+  "description": "A blockchain-inspired medicine verification platform ensuring supply chain integrity through QR tracking.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
